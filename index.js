@@ -47,6 +47,117 @@ const fileToBase64 = (file) => {
   });
 };
 
+// --- FILE UPLOAD HANDLERS ---
+// Handle drag and drop
+uploadBox.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  uploadBox.classList.add('border-violet-500', 'bg-slate-800/50');
+});
+
+uploadBox.addEventListener('dragleave', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  uploadBox.classList.remove('border-violet-500', 'bg-slate-800/50');
+});
+
+uploadBox.addEventListener('drop', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  uploadBox.classList.remove('border-violet-500', 'bg-slate-800/50');
+  
+  const file = e.dataTransfer.files[0];
+  if (file) handleFileSelect(file);
+});
+
+// Handle click to upload
+uploadBox.addEventListener('click', () => {
+  fileInput.click();
+});
+
+// Handle file input change
+fileInput.addEventListener('change', (e) => {
+  if (e.target.files[0]) handleFileSelect(e);
+});
+
+// Handle file removal
+removeFileButton.addEventListener('click', () => {
+  state.file = null;
+  fileInput.value = '';
+  render();
+});
+const handleFileSelect = async (file) => {
+  try {
+    // Validate file type
+    const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'];
+    if (!allowedTypes.includes(file.type)) {
+      throw new Error('Invalid file type. Please upload a PDF, DOC, DOCX, or TXT file.');
+    }
+
+    // Validate file size (10MB limit)
+    const MAX_SIZE = 10 * 1024 * 1024; // 10MB in bytes
+    if (file.size > MAX_SIZE) {
+      throw new Error('File is too large. Maximum size is 10MB.');
+    }
+
+    // Convert file to base64
+    const base64 = await fileToBase64(file);
+
+    // Update state
+    state.file = {
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      base64: base64
+    };
+    state.error = null;
+  } catch (error) {
+    state.error = error.message;
+    state.file = null;
+  }
+  render();
+};
+
+// Handle file input change
+fileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) handleFileSelect(file);
+});
+
+// Handle drag and drop
+uploadBox.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  uploadBox.classList.add('border-violet-500', 'bg-slate-800/50');
+});
+
+uploadBox.addEventListener('dragleave', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  uploadBox.classList.remove('border-violet-500', 'bg-slate-800/50');
+});
+
+uploadBox.addEventListener('drop', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  uploadBox.classList.remove('border-violet-500', 'bg-slate-800/50');
+  
+  const file = e.dataTransfer.files[0];
+  if (file) handleFileSelect(file);
+});
+
+// Handle click to upload
+uploadBox.addEventListener('click', () => {
+  fileInput.click();
+});
+
+// Handle file removal
+removeFileButton.addEventListener('click', () => {
+  state.file = null;
+  fileInput.value = '';
+  render();
+});
+
 // --- RENDER FUNCTION (UI Updater) ---
 const render = () => {
   // File Upload UI
@@ -118,10 +229,22 @@ const render = () => {
 };
 
 // --- EVENT HANDLERS ---
-const handleFileSelect = async (event) => {
-  const selectedFile = event.target.files?.[0];
+const handleFileSelect = async (fileOrEvent) => {
+  const selectedFile = fileOrEvent instanceof File ? fileOrEvent : fileOrEvent.target.files?.[0];
   if (selectedFile) {
     try {
+      // Validate file type
+      const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'];
+      if (!allowedTypes.includes(selectedFile.type)) {
+        throw new Error('Invalid file type. Please upload a PDF, DOC, DOCX, or TXT file.');
+      }
+
+      // Validate file size (10MB limit)
+      const MAX_SIZE = 10 * 1024 * 1024; // 10MB in bytes
+      if (selectedFile.size > MAX_SIZE) {
+        throw new Error('File is too large. Maximum size is 10MB.');
+      }
+
       const base64 = await fileToBase64(selectedFile);
       state.file = {
         name: selectedFile.name,
