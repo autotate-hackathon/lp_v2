@@ -23,10 +23,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // --- DOM ELEMENT REFERENCES ---
   const uploadBox = document.getElementById('upload-box');
   const fileInput = document.getElementById('file-input');
+  const folderInput = document.getElementById('folder-input');
   const fileDisplay = document.getElementById('file-display');
   const fileNameEl = document.getElementById('file-name');
   const fileSizeEl = document.getElementById('file-size');
   const removeFileButton = document.getElementById('remove-file-button');
+  const uploadFileBtn = document.getElementById('upload-file-btn');
+  const selectFolderBtn = document.getElementById('select-folder-btn');
   const promptForm = document.getElementById('prompt-form');
   const promptTextarea = document.getElementById('prompt-textarea');
   const generateButton = document.getElementById('generate-button');
@@ -36,14 +39,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // --- GEMINI API SETUP ---
   let ai;
   // Safely access the API key to prevent crashing in a browser-only environment
-  const API_KEY = (typeof process !== 'undefined' && process.env && process.env.API_KEY) 
-    ? process.env.API_KEY 
+  const API_KEY = (typeof process !== 'undefined' && process.env && process.env.API_KEY)
+    ? process.env.API_KEY
     : undefined;
+  const DEMO_MODE = !API_KEY;
 
   if (!API_KEY) {
-    state.error = "Configuration error: Could not find the Google Gemini API Key. The app's generate functionality is disabled.";
-    state.generationState = GenerationState.ERROR; // Set an initial error state
-    console.error(state.error);
+    // Don't set a hard error state — allow the UI to operate in demo mode so upload + submit can be tested.
+    console.warn('No Google Gemini API key found. Running in demo mode. Generate will simulate a response.');
   } else {
     ai = new GoogleGenAI({ apiKey: API_KEY });
   }
@@ -56,6 +59,23 @@ document.addEventListener('DOMContentLoaded', () => {
       reader.onload = () => resolve(reader.result.split(',')[1]);
       reader.onerror = (error) => reject(error);
     });
+  };
+
+  // Convert a FileList or array of Files into a zip (base64) using JSZip
+  const filesToZipBase64 = async (files) => {
+    if (typeof JSZip === 'undefined') throw new Error('JSZip not loaded');
+    const zip = new JSZip();
+    // files may be a FileList; normalize to array
+    const fileArray = Array.from(files);
+    for (const f of fileArray) {
+      // Preserve relative path when available (webkitRelativePath)
+      const path = f.webkitRelativePath || f.name;
+      const buffer = await f.arrayBuffer();
+      zip.file(path, buffer);
+    }
+    // generate as base64
+    const base64 = await zip.generateAsync({ type: 'base64' });
+    return base64;
   };
 
   // --- RENDER FUNCTION (UI Updater) ---
@@ -77,8 +97,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Prompt and Button UI
     promptTextarea.value = state.prompt;
-    const isButtonDisabled = !state.file || !state.prompt.trim() || state.generationState === GenerationState.LOADING || !ai;
+  // Allow the button to be enabled in demo mode (ai may be undefined). The submit handler will
+  // handle demo-mode behavior if the real API client isn't initialized.
+  const isButtonDisabled = !state.file || !state.prompt.trim() || state.generationState === GenerationState.LOADING;
     generateButton.disabled = isButtonDisabled;
+
+    // Inline error display (below upload area)
+    const errorEl = document.getElementById('error-msg');
+    if (errorEl) {
+      if (state.error) {
+        errorEl.textContent = state.error;
+        errorEl.classList.remove('hidden');
+      } else {
+        errorEl.textContent = '';
+        errorEl.classList.add('hidden');
+      }
+    }
 
     if (state.generationState === GenerationState.LOADING) {
       generateButton.innerHTML = `
@@ -129,31 +163,79 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   // --- EVENT HANDLERS ---
-  const handleFileSelect = async (event) => {
-    const selectedFile = event.target.files?.[0];
-    if (selectedFile) {
-      try {
-        const base64 = await fileToBase64(selectedFile);
+  const handleFileSelect = async (eventOrFiles) => {
+    try {
+      let files;
+      // Accept either an Event from an <input> change, a FileList, or a single File
+      if (eventOrFiles instanceof Event) {
+        files = eventOrFiles.target.files;
+      } else if (eventOrFiles instanceof FileList || Array.isArray(eventOrFiles)) {
+        files = eventOrFiles;
+      } else if (eventOrFiles instanceof File) {
+        files = [eventOrFiles];
+      } else {
+        files = null;
+      }
+
+      if (!files || files.length === 0) return;
+
+      const MAX_SIZE = 10 * 1024 * 1024; // 10MB per file limit
+
+      // If multiple files were selected (folder selection), zip them client-side
+      if (files.length > 1) {
+        // validate per-file size
+        for (const f of Array.from(files)) {
+          if (f.size > MAX_SIZE) throw new Error(`One of the selected files is too large (max 10MB): ${f.name}`);
+        }
+        const base64 = await filesToZipBase64(files);
+        // Derive folder name from first file's webkitRelativePath if available
+        const first = files[0];
+        const rel = first.webkitRelativePath || '';
+        let folderName = 'archive';
+        if (rel) folderName = rel.split('/')[0] || folderName;
         state.file = {
-          name: selectedFile.name,
-          type: selectedFile.type || 'application/octet-stream', // Provide a default MIME type
-          size: selectedFile.size,
+          name: `${folderName}.zip`,
+          type: 'application/zip',
+          size: 0,
           base64,
         };
-        
-        // Reset per-request state, but preserve the initial API key error if it exists.
-        state.result = '';
-        if (ai) {
-          state.error = null;
-          state.generationState = GenerationState.IDLE;
+      } else {
+        const f = files[0];
+        // If the user selected a zip file directly, just read it
+        if (f.name.toLowerCase().endsWith('.zip') || f.type === 'application/zip') {
+          const base64 = await fileToBase64(f);
+          state.file = {
+            name: f.name,
+            type: 'application/zip',
+            size: f.size,
+            base64,
+          };
+        } else {
+          // Single non-zip file - validate type and size
+          const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'];
+          if (f.size > MAX_SIZE) throw new Error('File is too large. Maximum size is 10MB.');
+          if (!allowedTypes.includes(f.type)) throw new Error('Invalid file type. Please upload PDF, DOC, DOCX, or TXT, or upload a ZIP/folder.');
+          const base64 = await fileToBase64(f);
+          state.file = {
+            name: f.name,
+            type: f.type || 'application/octet-stream',
+            size: f.size,
+            base64,
+          };
         }
-        render();
-      } catch (error) {
-        console.error('Error converting file to base64:', error);
-        state.error = 'Could not process the selected file.';
-        state.generationState = GenerationState.ERROR;
-        render();
       }
+
+      // Reset per-request state (preserve initial API key warning in console)
+      state.result = '';
+      state.error = null;
+      state.generationState = GenerationState.IDLE;
+      render();
+    } catch (error) {
+      console.error('Error processing selection:', error);
+      state.error = error instanceof Error ? error.message : 'Could not process the selected file(s).';
+      state.file = null;
+      state.generationState = GenerationState.ERROR;
+      render();
     }
   };
 
@@ -173,15 +255,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    // Guard against running if AI client is not initialized
-    if (!ai || !state.file || !state.prompt) return;
+    // Basic guards
+    if (!state.file || !state.prompt) return;
 
     state.generationState = GenerationState.LOADING;
     state.result = '';
     state.error = null;
     render();
-
     try {
+      // If AI client not initialized (no API key), run a demo/mock response so the button appears to work.
+      if (!ai) {
+        // Simulate processing time
+        await new Promise((res) => setTimeout(res, 700));
+        state.result = `Demo response:\nFile: ${state.file.name}\nPrompt: ${state.prompt}\n\n(This is a simulated response because no API key was provided.)`;
+        state.generationState = GenerationState.SUCCESS;
+        render();
+        return;
+      }
+
       const documentPart = { inlineData: { mimeType: state.file.type, data: state.file.base64 } };
       const textPart = { text: state.prompt };
 
@@ -197,19 +288,53 @@ document.addEventListener('DOMContentLoaded', () => {
       state.error = e instanceof Error ? e.message : 'An unknown error occurred.';
       state.generationState = GenerationState.ERROR;
     }
-    
+
     render();
   };
 
   // --- INITIALIZATION ---
   uploadBox.addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', handleFileSelect);
+  // Folder input change (when user selects a folder via the dedicated control)
+  folderInput?.addEventListener('change', (e) => {
+    // Pass the FileList to the handler
+    handleFileSelect(e.target.files);
+  });
+  // Wire visible buttons
+  uploadFileBtn?.addEventListener('click', () => fileInput.click());
+  selectFolderBtn?.addEventListener('click', () => folderInput?.click());
   removeFileButton.addEventListener('click', handleFileRemove);
   promptTextarea.addEventListener('input', (e) => {
     state.prompt = e.target.value;
     render();
   });
   promptForm.addEventListener('submit', handleSubmit);
+
+  // Demo banner initialization and dismiss handler
+  const demoBanner = document.getElementById('demo-banner');
+  const dismissDemoBannerButton = document.getElementById('dismiss-demo-banner');
+  try {
+    if (demoBanner && DEMO_MODE && !localStorage.getItem('dismissDemoBanner')) {
+      demoBanner.classList.remove('hidden');
+    }
+  } catch (e) {
+    // Ignore localStorage errors in restricted environments
+  }
+  dismissDemoBannerButton?.addEventListener('click', () => {
+    demoBanner?.classList.add('hidden');
+    try { localStorage.setItem('dismissDemoBanner', '1'); } catch (e) {}
+  });
+
+  // Sample prompt chips handler (populate textarea when clicked)
+  const samplePromptsEl = document.getElementById('sample-prompts');
+  samplePromptsEl?.addEventListener('click', (e) => {
+    const btn = e.target.closest('button.sample-prompt');
+    if (!btn) return;
+    const p = btn.dataset.prompt || '';
+    state.prompt = p;
+    promptTextarea.value = state.prompt;
+    render();
+  });
 
   // Initial render on page load
   render();
