@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Intelligent Document Assistant</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Custom styles for hiding elements */
+    .hidden {
+      display: none;
+    }
+    /* Simple keyframes for skeleton loader */
+    @keyframes pulse {
+      50% {
+        opacity: .5;
+      }
+    }
+    .animate-pulse {
+      animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+  </style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.28.0",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/"
+  }
+}
+</script>
+</head>
+<body class="bg-slate-900 text-slate-200 font-sans">
+
+  <div class="min-h-screen p-4 sm:p-6 lg:p-8">
+    <div class="max-w-2xl mx-auto">
+      
+      <!-- Header -->
+      <header class="py-6">
+        <div class="container mx-auto text-center">
+          <div class="flex items-center justify-center gap-3">
+            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-violet-400">
+              <path d="M12 3L9.5 8.5L4 11L9.5 13.5L12 19L14.5 13.5L20 11L14.5 8.5L12 3z"></path>
+              <path d="M5 3v4"></path><path d="M19 17v4"></path><path d="M3 5h4"></path><path d="M17 19h4"></path>
+            </svg>
+            <h1 class="text-4xl font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-violet-400 to-indigo-500">
+              Intelligent Document Assistant
+            </h1>
+          </div>
+          <p class="mt-2 text-lg text-slate-400">
+            Upload your document and let AI work its magic.
+          </p>
+        </div>
+      </header>
+      
+      <!-- Main Content -->
+      <main class="mt-8">
+        <div class="bg-slate-800/50 border border-slate-700/50 shadow-lg shadow-slate-900/50 rounded-xl p-6">
+          
+          <!-- File Upload Area -->
+          <div id="file-upload-container">
+            <!-- Initial Upload View -->
+            <div id="upload-box" class="flex flex-col items-center justify-center w-full p-8 border-2 border-dashed border-slate-700 rounded-lg cursor-pointer hover:bg-slate-800/50 hover:border-violet-500 transition-all duration-300">
+              <input type="file" id="file-input" class="hidden" accept=".pdf,.doc,.docx,.txt,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+              <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-10 h-10 text-slate-500 mb-4">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+              </svg>
+              <p class="text-lg font-semibold text-slate-300">Click to upload a document</p>
+              <p class="text-sm text-slate-500">PDF, DOC, DOCX, or TXT</p>
+            </div>
+            
+            <!-- File Selected View -->
+            <div id="file-display" class="hidden p-4 bg-slate-800 border border-slate-700 rounded-lg items-center justify-between transition-all duration-300">
+              <div class="flex items-center gap-3">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-violet-400">
+                  <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path>
+                  <polyline points="14 2 14 8 20 8"></polyline>
+                </svg>
+                <div>
+                  <p id="file-name" class="font-medium text-slate-200"></p>
+                  <p id="file-size" class="text-sm text-slate-400"></p>
+                </div>
+              </div>
+              <button id="remove-file-button" class="px-3 py-1 text-sm font-semibold text-red-400 bg-red-900/50 rounded-md hover:bg-red-900/80 transition-colors">
+                Remove
+              </button>
+            </div>
+          </div>
+          
+          <!-- Prompt Input Form -->
+          <form id="prompt-form" class="mt-6 space-y-4">
+            <textarea id="prompt-textarea" placeholder="e.g., Summarize the key points of this document" class="w-full p-4 bg-slate-800 border border-slate-700 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition-all duration-300 resize-none disabled:opacity-50 disabled:cursor-not-allowed" rows="3"></textarea>
+            <button type="submit" id="generate-button" class="w-full flex items-center justify-center gap-2 px-6 py-3 font-semibold text-white bg-violet-600 rounded-lg hover:bg-violet-700 disabled:bg-slate-600 disabled:cursor-not-allowed transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-violet-500">
+              <!-- Button Content is managed by JS -->
+            </button>
+          </form>
+        </div>
+        
+        <!-- Result Display Area -->
+        <div id="result-container" class="mt-8 hidden">
+          <h2 class="text-2xl font-semibold mb-4 text-slate-200">Generated Result</h2>
+          <div id="result-display" class="p-6 bg-slate-800 border border-slate-700 rounded-lg min-h-[150px]">
+            <!-- Result Content is managed by JS -->
+          </div>
+        </div>
+        
+      </main>
+    </div>
+  </div>
+
+  <script type="module" src="/index.js"></script>
+</body>
+</html>
